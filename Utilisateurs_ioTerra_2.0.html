@@ -1,0 +1,1981 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SmartWaste - Gestion Intelligente des Déchets</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    
+    <!-- Firebase SDK -->
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
+        import { getFirestore, collection, addDoc, getDocs, doc, updateDoc, deleteDoc, onSnapshot, query, where, orderBy, serverTimestamp, setDoc } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
+        import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
+        
+        // Configuration Firebase (remplacez par vos vraies clés)
+        const firebaseConfig = {
+            apiKey: "AIzaSyANkY3geoqpW5agisgC_ftrAnc1i7A6-7k",
+            authDomain: "ioterra-91ef3.firebaseapp.com",
+            projectId: "ioterra-91ef3",
+            storageBucket: "ioterra-91ef3.firebasestorage.app",
+            messagingSenderId: "1031451501188",
+            appId: "1:1031451501188:web:f4fe10ea15a5e435f358d1",
+            measurementId: "G-EMKD030XPL"
+        };
+        
+        // Initialisation Firebase
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const auth = getAuth(app);
+        
+        // Rendre disponible globalement
+        window.firebase = { 
+            db, auth, collection, addDoc, getDocs, doc, updateDoc, deleteDoc, 
+            onSnapshot, query, where, orderBy, serverTimestamp, setDoc,
+            signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged 
+        };
+    </script>
+    
+    <style>
+        .sidebar-transition { transition: transform 0.3s ease-in-out; }
+        .map-container { height: calc(100vh - 80px); }
+        .pulse { animation: pulse 2s infinite; }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        .gradient-bg {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        .card-shadow {
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+        }
+        .notification {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1000;
+            min-width: 300px;
+            padding: 16px;
+            border-radius: 8px;
+            color: white;
+            font-weight: 500;
+            transform: translateX(400px);
+            transition: transform 0.3s ease-in-out;
+        }
+        .notification.show {
+            transform: translateX(0);
+        }
+        .notification.success { background-color: #10B981; }
+        .notification.error { background-color: #EF4444; }
+        .notification.warning { background-color: #F59E0B; }
+        .notification.info { background-color: #3B82F6; }
+        .loading-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+        }
+    </style>
+</head>
+<body class="bg-gray-50 font-sans">
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" class="loading-overlay hidden">
+        <div class="bg-white rounded-lg p-6 text-center">
+            <i class="fas fa-spinner fa-spin text-3xl text-blue-600 mb-4"></i>
+            <p class="text-gray-700">Chargement...</p>
+        </div>
+    </div>
+    <!-- Loading Overlay 
+    <div id="loadingOverlay" class="loading-overlay">
+        <div class="bg-white rounded-lg p-6 text-center">
+            <i class="fas fa-spinner fa-spin text-3xl text-blue-600 mb-4"></i>
+            <p class="text-gray-700">Chargement...</p>
+        </div>
+    </div> -->
+
+    <!-- Notification Container -->
+    <div id="notificationContainer"></div>
+    
+    <!-- Login Modal Overlay -->
+    <div id="loginOverlay" class="fixed inset-0 bg-gray-300 opacity-100 z-40 hidden"></div>
+    <!-- Login Modal -->
+    <div id="loginModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden">
+        <div class="bg-white rounded-xl p-8 w-full max-w-md mx-4">
+            <div class="text-center mb-6">
+                <i class="fas fa-recycle text-4xl text-blue-600 mb-4"></i>
+                <h2 class="text-2xl font-bold text-gray-800">IoTerra</h2>
+                <p class="text-gray-600">Connexion à votre compte</p>
+            </div>
+            
+            <form id="loginForm" class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Email</label>
+                    <input id="loginEmail" type="email" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="votre@email.com">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Mot de passe</label>
+                    <input id="loginPassword" type="password" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="••••••••">
+                </div>
+                <button type="submit" class="w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition-colors">
+                    <i class="fas fa-sign-in-alt mr-2"></i>Se connecter
+                </button>
+            </form>
+            
+            <!-- Section comptes de démonstration supprimée -->
+        </div>
+    </div>
+
+    <!-- Header -->
+    <header class="gradient-bg text-white shadow-lg">
+        <div class="container mx-auto px-4 py-4 flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+                <i class="fas fa-recycle text-2xl"></i>
+                <h1 class="text-2xl font-bold">IoTerra</h1>
+            </div>
+            <nav class="hidden md:flex space-x-6">
+                <button onclick="showSection('dashboard')" class="nav-btn hover:text-blue-200 transition-colors">
+                    <i class="fas fa-tachometer-alt mr-2"></i>Tableau de bord
+                </button>
+                <button onclick="showSection('map')" class="nav-btn hover:text-blue-200 transition-colors">
+                    <i class="fas fa-map mr-2"></i>Cartographie
+                </button>
+                <button onclick="showSection('routes')" class="nav-btn hover:text-blue-200 transition-colors">
+                    <i class="fas fa-route mr-2"></i>Itinéraires
+                </button>
+                <button onclick="showSection('stats')" class="nav-btn hover:text-blue-200 transition-colors">
+                    <i class="fas fa-chart-bar mr-2"></i>Statistiques
+                </button>
+                <button id="adminNavBtn" onclick="showSection('admin')" class="nav-btn hover:text-blue-200 transition-colors hidden">
+                    <i class="fas fa-cog mr-2"></i>Administration
+                </button>
+            </nav>
+            <div class="flex items-center space-x-4">
+                <div class="relative">
+                    <i class="fas fa-bell text-xl cursor-pointer hover:text-blue-200" onclick="toggleNotifications()"></i>
+                    <span id="notificationBadge" class="absolute -top-2 -right-2 bg-red-500 text-xs rounded-full h-5 w-5 flex items-center justify-center">0</span>
+                </div>
+                <div class="flex items-center space-x-2">
+                    <img id="userAvatar" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='16' fill='%23e5e7eb'/%3E%3Ctext x='16' y='20' text-anchor='middle' fill='%23374151' font-family='Arial' font-size='12'%3E?%3C/text%3E%3C/svg%3E" alt="Avatar" class="w-8 h-8 rounded-full">
+                    <span id="userName" class="hidden md:block">Utilisateur</span>
+                    <button onclick="logoutUser()" class="ml-2 text-white hover:text-blue-200">
+                        <i class="fas fa-sign-out-alt"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Mobile Menu -->
+    <div class="md:hidden bg-white border-b">
+        <div class="flex overflow-x-auto px-4 py-2 space-x-4">
+            <button onclick="showSection('dashboard')" class="mobile-nav-btn whitespace-nowrap px-3 py-2 text-sm">
+                <i class="fas fa-tachometer-alt mr-1"></i>Dashboard
+            </button>
+            <button onclick="showSection('map')" class="mobile-nav-btn whitespace-nowrap px-3 py-2 text-sm">
+                <i class="fas fa-map mr-1"></i>Carte
+            </button>
+            <button onclick="showSection('routes')" class="mobile-nav-btn whitespace-nowrap px-3 py-2 text-sm">
+                <i class="fas fa-route mr-1"></i>Routes
+            </button>
+            <button onclick="showSection('stats')" class="mobile-nav-btn whitespace-nowrap px-3 py-2 text-sm">
+                <i class="fas fa-chart-bar mr-1"></i>Stats
+            </button>
+            <button id="adminMobileBtn" onclick="showSection('admin')" class="mobile-nav-btn whitespace-nowrap px-3 py-2 text-sm hidden">
+                <i class="fas fa-cog mr-1"></i>Admin
+            </button>
+        </div>
+    </div>
+
+    <!-- Notifications Panel -->
+    <div id="notificationPanel" class="hidden fixed top-16 right-4 bg-white rounded-lg shadow-xl z-50 w-80 max-h-96 overflow-y-auto">
+        <div class="p-4 border-b">
+            <h3 class="font-semibold text-gray-800">Notifications</h3>
+        </div>
+        <div id="notificationsList" class="p-4 space-y-3">
+            <div class="text-center text-gray-500 text-sm">Aucune notification</div>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <main class="container mx-auto px-4 py-6">
+        <!-- Dashboard Section -->
+    <div id="dashboard" class="section">
+            <div class="mb-6">
+                <h2 class="text-3xl font-bold text-gray-800 mb-2">Tableau de bord</h2>
+                <p class="text-gray-600">Vue d'ensemble de votre système de gestion des déchets</p>
+            </div>
+
+            <!-- KPI Cards -->
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                <div class="bg-white rounded-xl p-6 card-shadow">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-sm font-medium text-gray-600">Poubelles actives</p>
+                            <p id="activeBins" class="text-3xl font-bold text-gray-900">0</p>
+                            <p class="text-sm text-green-600 mt-1">
+                                <i class="fas fa-sync fa-spin mr-1"></i>Chargement...
+                            </p>
+                        </div>
+                        <div class="bg-blue-100 p-3 rounded-full">
+                            <i class="fas fa-trash text-blue-600 text-xl"></i>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-xl p-6 card-shadow">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-sm font-medium text-gray-600">Taux moyen</p>
+                            <p id="averageLevel" class="text-3xl font-bold text-gray-900">0%</p>
+                            <p class="text-sm text-orange-600 mt-1">
+                                <i class="fas fa-sync fa-spin mr-1"></i>Chargement...
+                            </p>
+                        </div>
+                        <div class="bg-orange-100 p-3 rounded-full">
+                            <i class="fas fa-chart-pie text-orange-600 text-xl"></i>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-xl p-6 card-shadow">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-sm font-medium text-gray-600">Collectes aujourd'hui</p>
+                            <p id="todayCollections" class="text-3xl font-bold text-gray-900">0</p>
+                            <p class="text-sm text-green-600 mt-1">
+                                <i class="fas fa-check mr-1"></i><span id="completedCollections">0</span> terminées
+                            </p>
+                        </div>
+                        <div class="bg-green-100 p-3 rounded-full">
+                            <i class="fas fa-truck text-green-600 text-xl"></i>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-xl p-6 card-shadow">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-sm font-medium text-gray-600">Alertes actives</p>
+                            <p id="activeAlerts" class="text-3xl font-bold text-red-600">0</p>
+                            <p class="text-sm text-red-600 mt-1">
+                                <i class="fas fa-sync fa-spin mr-1"></i>Chargement...
+                            </p>
+                        </div>
+                        <div class="bg-red-100 p-3 rounded-full">
+                            <i class="fas fa-bell text-red-600 text-xl"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Charts Row -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+                <div class="bg-white rounded-xl p-6 card-shadow">
+                    <h3 class="text-lg font-semibold text-gray-800 mb-4">Évolution du remplissage</h3>
+                    <div style="height:300px;">
+                        <canvas id="fillChart" style="height:100%!important;max-height:100%!important;"></canvas>
+                    </div>
+                </div>
+                <div class="bg-white rounded-xl p-6 card-shadow">
+                    <h3 class="text-lg font-semibold text-gray-800 mb-4">Répartition par zone</h3>
+                    <div style="height:300px;">
+                        <canvas id="zoneChart" style="height:100%!important;max-height:100%!important;"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Recent Activity -->
+            <div class="bg-white rounded-xl p-6 card-shadow">
+                <h3 class="text-lg font-semibold text-gray-800 mb-4">Activité récente</h3>
+                <div id="recentActivity" class="space-y-4">
+                    <div class="text-center text-gray-500">
+                        <i class="fas fa-sync fa-spin mr-2"></i>Chargement des activités...
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Map Section -->
+        <div id="map" class="section hidden">
+            <div class="mb-6">
+                <h2 class="text-3xl font-bold text-gray-800 mb-2">Cartographie des poubelles</h2>
+                <p class="text-gray-600">Visualisation en temps réel du niveau de remplissage</p>
+            </div>
+
+            <!-- Map Controls -->
+            <div class="bg-white rounded-xl p-4 mb-6 card-shadow">
+                <div class="flex flex-wrap items-center gap-4">
+                    <div class="flex items-center space-x-2">
+                        <label class="text-sm font-medium text-gray-700">Filtrer par zone:</label>
+                        <select id="zoneFilter" class="border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                            <option value="">Toutes les zones</option>
+                            <option value="centre">Centre-ville</option>
+                            <option value="nord">Secteur Nord</option>
+                            <option value="sud">Secteur Sud</option>
+                            <option value="industriel">Zone Industrielle</option>
+                        </select>
+                    </div>
+                    <div class="flex items-center space-x-2">
+                        <label class="text-sm font-medium text-gray-700">Niveau:</label>
+                        <select id="levelFilter" class="border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                            <option value="">Tous niveaux</option>
+                            <option value="low">< 50% (Vert)</option>
+                            <option value="medium">50-70% (Orange)</option>
+                            <option value="high">> 70% (Rouge)</option>
+                        </select>
+                    </div>
+                    <div class="flex items-center space-x-2">
+                        <label class="text-sm font-medium text-gray-700">Type:</label>
+                        <select id="typeFilter" class="border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                            <option value="">Tous types</option>
+                            <option value="general">Déchets généraux</option>
+                            <option value="recyclable">Recyclables</option>
+                            <option value="organic">Organiques</option>
+                        </select>
+                    </div>
+                    <button onclick="applyFilters()" class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors">
+                        <i class="fas fa-filter mr-2"></i>Appliquer
+                    </button>
+                    <button onclick="refreshMap()" class="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors">
+                        <i class="fas fa-sync mr-2"></i>Actualiser
+                    </button>
+                </div>
+            </div>
+
+            <!-- Legend -->
+            <div class="bg-white rounded-xl p-4 mb-6 card-shadow">
+                <h4 class="font-semibold text-gray-800 mb-3">Légende</h4>
+                <div class="flex flex-wrap gap-6">
+                    <div class="flex items-center space-x-2">
+                        <div class="w-4 h-4 bg-green-500 rounded-full"></div>
+                        <span class="text-sm text-gray-700">< 50% (Bon)</span>
+                    </div>
+                    <div class="flex items-center space-x-2">
+                        <div class="w-4 h-4 bg-orange-500 rounded-full"></div>
+                        <span class="text-sm text-gray-700">50-70% (Attention)</span>
+                    </div>
+                    <div class="flex items-center space-x-2">
+                        <div class="w-4 h-4 bg-red-500 rounded-full pulse"></div>
+                        <span class="text-sm text-gray-700">> 70% (Critique)</span>
+                    </div>
+                    <div class="flex items-center space-x-2">
+                        <div class="w-4 h-4 bg-gray-400 rounded-full"></div>
+                        <span class="text-sm text-gray-700">Hors ligne</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Map Container -->
+            <div class="bg-white rounded-xl card-shadow overflow-hidden">
+                <div id="mapContainer" class="map-container"></div>
+            </div>
+        </div>
+
+        <!-- Routes Section -->
+        <div id="routes" class="section hidden">
+            <div class="mb-6">
+                <h2 class="text-3xl font-bold text-gray-800 mb-2">Gestion des itinéraires</h2>
+                <p class="text-gray-600">Optimisation automatique des tournées de collecte</p>
+            </div>
+
+            <!-- Route Generation -->
+            <div class="bg-white rounded-xl p-6 mb-6 card-shadow">
+                <h3 class="text-lg font-semibold text-gray-800 mb-4">Générer un nouvel itinéraire</h3>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Seuil de remplissage</label>
+                        <select id="routeThreshold" class="w-full border border-gray-300 rounded-lg px-3 py-2">
+                            <option value="50">≥ 50%</option>
+                            <option value="70" selected>≥ 70%</option>
+                            <option value="80">≥ 80%</option>
+                            <option value="90">≥ 90%</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Zone de collecte</label>
+                        <select id="routeZone" class="w-full border border-gray-300 rounded-lg px-3 py-2">
+                            <option value="">Toutes les zones</option>
+                            <option value="centre">Centre-ville</option>
+                            <option value="nord">Secteur Nord</option>
+                            <option value="sud">Secteur Sud</option>
+                            <option value="industriel">Zone Industrielle</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Capacité camion</label>
+                        <select id="truckCapacity" class="w-full border border-gray-300 rounded-lg px-3 py-2">
+                            <option value="20">20 poubelles</option>
+                            <option value="30" selected>30 poubelles</option>
+                            <option value="40">40 poubelles</option>
+                        </select>
+                    </div>
+                </div>
+                <button onclick="generateRoute()" class="bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 transition-colors">
+                    <i class="fas fa-route mr-2"></i>Générer l'itinéraire optimal
+                </button>
+            </div>
+
+            <!-- Current Routes -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div class="bg-white rounded-xl p-6 card-shadow">
+                    <h3 class="text-lg font-semibold text-gray-800 mb-4">Itinéraires actifs</h3>
+                    <div id="routesList" class="space-y-4">
+                        <div class="text-center text-gray-500">
+                            <i class="fas fa-sync fa-spin mr-2"></i>Chargement des itinéraires...
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-xl p-6 card-shadow">
+                    <h3 class="text-lg font-semibold text-gray-800 mb-4">Optimisation suggérée</h3>
+                    <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+                        <div class="flex items-start space-x-3">
+                            <i class="fas fa-lightbulb text-blue-600 mt-1"></i>
+                            <div>
+                                <h4 class="font-medium text-blue-800">Économie possible</h4>
+                                <p class="text-sm text-blue-700 mt-1">
+                                    En regroupant les collectes du secteur Sud, vous pourriez économiser 
+                                    <strong>45 minutes</strong> et <strong>12 km</strong> de trajet.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="space-y-3">
+                        <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                            <div>
+                                <p class="font-medium text-gray-800">Temps total actuel</p>
+                                <p class="text-sm text-gray-600">5h 45min</p>
+                            </div>
+                            <div class="text-right">
+                                <p class="font-medium text-green-600">Temps optimisé</p>
+                                <p class="text-sm text-green-600">5h 00min</p>
+                            </div>
+                        </div>
+                        <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                            <div>
+                                <p class="font-medium text-gray-800">Distance actuelle</p>
+                                <p class="text-sm text-gray-600">42.7 km</p>
+                            </div>
+                            <div class="text-right">
+                                <p class="font-medium text-green-600">Distance optimisée</p>
+                                <p class="text-sm text-green-600">30.7 km</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <button onclick="applyOptimization()" class="w-full mt-4 bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition-colors">
+                        <i class="fas fa-magic mr-2"></i>Appliquer l'optimisation
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Statistics Section -->
+        <div id="stats" class="section hidden">
+            <div class="mb-6">
+                <h2 class="text-3xl font-bold text-gray-800 mb-2">Statistiques et rapports</h2>
+                <p class="text-gray-600">Analyse avancée des données de collecte</p>
+            </div>
+
+            <!-- Time Period Selector -->
+            <div class="bg-white rounded-xl p-4 mb-6 card-shadow">
+                <div class="flex flex-wrap items-center gap-4">
+                    <div class="flex items-center space-x-2">
+                        <label class="text-sm font-medium text-gray-700">Période:</label>
+                        <select id="timePeriod" class="border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                            <option value="7">7 derniers jours</option>
+                            <option value="30" selected>30 derniers jours</option>
+                            <option value="90">3 derniers mois</option>
+                            <option value="365">Année complète</option>
+                        </select>
+                    </div>
+                    <div class="flex items-center space-x-2">
+                        <label class="text-sm font-medium text-gray-700">Zone:</label>
+                        <select id="statsZone" class="border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                            <option value="">Toutes les zones</option>
+                            <option value="centre">Centre-ville</option>
+                            <option value="nord">Secteur Nord</option>
+                            <option value="sud">Secteur Sud</option>
+                            <option value="industriel">Zone Industrielle</option>
+                        </select>
+                    </div>
+                    <button onclick="updateStats()" class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors">
+                        <i class="fas fa-sync mr-2"></i>Actualiser
+                    </button>
+                    <button onclick="exportReport()" class="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors">
+                        <i class="fas fa-download mr-2"></i>Exporter PDF
+                    </button>
+                </div>
+            </div>
+
+            <!-- Stats Grid -->
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                <div class="bg-white rounded-xl p-6 card-shadow">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-sm font-medium text-gray-600">Collectes totales</p>
+                            <p id="totalCollections" class="text-3xl font-bold text-gray-900">1,247</p>
+                            <p class="text-sm text-green-600 mt-1">
+                                <i class="fas fa-arrow-up mr-1"></i>+8.2% vs mois dernier
+                            </p>
+                        </div>
+                        <div class="bg-blue-100 p-3 rounded-full">
+                            <i class="fas fa-truck text-blue-600 text-xl"></i>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-xl p-6 card-shadow">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-sm font-medium text-gray-600">Temps moyen remplissage</p>
+                            <p id="avgFillTime" class="text-3xl font-bold text-gray-900">4.2j</p>
+                            <p class="text-sm text-orange-600 mt-1">
+                                <i class="fas fa-arrow-down mr-1"></i>-0.3j vs mois dernier
+                            </p>
+                        </div>
+                        <div class="bg-orange-100 p-3 rounded-full">
+                            <i class="fas fa-clock text-orange-600 text-xl"></i>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-xl p-6 card-shadow">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-sm font-medium text-gray-600">Optimisation tournées</p>
+                            <p id="routeOptimization" class="text-3xl font-bold text-gray-900">23%</p>
+                            <p class="text-sm text-green-600 mt-1">
+                                <i class="fas fa-arrow-up mr-1"></i>Économie de temps
+                            </p>
+                        </div>
+                        <div class="bg-green-100 p-3 rounded-full">
+                            <i class="fas fa-route text-green-600 text-xl"></i>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-xl p-6 card-shadow">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-sm font-medium text-gray-600">CO₂ économisé</p>
+                            <p id="co2Saved" class="text-3xl font-bold text-gray-900">2.1t</p>
+                            <p class="text-sm text-green-600 mt-1">
+                                <i class="fas fa-leaf mr-1"></i>Impact environnemental
+                            </p>
+                        </div>
+                        <div class="bg-green-100 p-3 rounded-full">
+                            <i class="fas fa-leaf text-green-600 text-xl"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Charts -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+                <div class="bg-white rounded-xl p-6 card-shadow">
+                    <h3 class="text-lg font-semibold text-gray-800 mb-4">Évolution des collectes</h3>
+                    <canvas id="collectionsChart" width="400" height="200"></canvas>
+                </div>
+                <div class="bg-white rounded-xl p-6 card-shadow">
+                    <h3 class="text-lg font-semibold text-gray-800 mb-4">Performance par zone</h3>
+                    <canvas id="performanceChart" width="400" height="200"></canvas>
+                </div>
+            </div>
+
+            <!-- Detailed Stats Table -->
+            <div class="bg-white rounded-xl p-6 card-shadow">
+                <h3 class="text-lg font-semibold text-gray-800 mb-4">Détail par poubelle</h3>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm">
+                        <thead>
+                            <tr class="border-b border-gray-200">
+                                <th class="text-left py-3 px-4 font-medium text-gray-700">ID Poubelle</th>
+                                <th class="text-left py-3 px-4 font-medium text-gray-700">Zone</th>
+                                <th class="text-left py-3 px-4 font-medium text-gray-700">Niveau actuel</th>
+                                <th class="text-left py-3 px-4 font-medium text-gray-700">Dernière collecte</th>
+                                <th class="text-left py-3 px-4 font-medium text-gray-700">Fréquence</th>
+                                <th class="text-left py-3 px-4 font-medium text-gray-700">Statut</th>
+                                <th class="text-left py-3 px-4 font-medium text-gray-700">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="statsTableBody">
+                            <tr>
+                                <td colspan="7" class="py-8 text-center text-gray-500">
+                                    <i class="fas fa-sync fa-spin mr-2"></i>Chargement des données...
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Admin Section -->
+        <div id="admin" class="section hidden">
+            <div class="mb-6">
+                <h2 class="text-3xl font-bold text-gray-800 mb-2">Administration</h2>
+                <p class="text-gray-600">Gestion des utilisateurs, capteurs et paramètres système</p>
+            </div>
+
+            <!-- Admin Tabs -->
+            <div class="bg-white rounded-xl card-shadow mb-6">
+                <div class="border-b border-gray-200">
+                    <nav class="flex space-x-8 px-6">
+                        <button onclick="showAdminTab('users')" class="admin-tab-btn py-4 text-sm font-medium border-b-2 border-blue-500 text-blue-600">
+                            <i class="fas fa-users mr-2"></i>Utilisateurs
+                        </button>
+                        <button onclick="showAdminTab('sensors')" class="admin-tab-btn py-4 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700">
+                            <i class="fas fa-microchip mr-2"></i>Capteurs
+                        </button>
+                        <button onclick="showAdminTab('settings')" class="admin-tab-btn py-4 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700">
+                            <i class="fas fa-cog mr-2"></i>Paramètres
+                        </button>
+                        <button onclick="showAdminTab('alerts')" class="admin-tab-btn py-4 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700">
+                            <i class="fas fa-bell mr-2"></i>Alertes
+                        </button>
+                    </nav>
+                </div>
+
+                <!-- Users Tab -->
+                <div id="usersTab" class="admin-tab p-6">
+                    <div class="flex items-center justify-between mb-6">
+                        <h3 class="text-lg font-semibold text-gray-800">Gestion des utilisateurs</h3>
+                        <button onclick="showAddUserModal()" class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors">
+                            <i class="fas fa-plus mr-2"></i>Nouvel utilisateur
+                        </button>
+                    </div>
+                    
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-sm">
+                            <thead>
+                                <tr class="border-b border-gray-200">
+                                    <th class="text-left py-3 px-4 font-medium text-gray-700">Nom</th>
+                                    <th class="text-left py-3 px-4 font-medium text-gray-700">Email</th>
+                                    <th class="text-left py-3 px-4 font-medium text-gray-700">Rôle</th>
+                                    <th class="text-left py-3 px-4 font-medium text-gray-700">Dernière connexion</th>
+                                    <th class="text-left py-3 px-4 font-medium text-gray-700">Statut</th>
+                                    <th class="text-left py-3 px-4 font-medium text-gray-700">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="usersTableBody">
+                                <tr>
+                                    <td colspan="6" class="py-8 text-center text-gray-500">
+                                        <i class="fas fa-sync fa-spin mr-2"></i>Chargement des utilisateurs...
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Sensors Tab -->
+                <div id="sensorsTab" class="admin-tab p-6 hidden">
+                    <div class="flex items-center justify-between mb-6">
+                        <h3 class="text-lg font-semibold text-gray-800">Gestion des capteurs</h3>
+                        <button onclick="showAddSensorModal()" class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors">
+                            <i class="fas fa-plus mr-2"></i>Nouveau capteur
+                        </button>
+                    </div>
+                    
+                    <div id="sensorsGrid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        <div class="text-center text-gray-500 col-span-full">
+                            <i class="fas fa-sync fa-spin mr-2"></i>Chargement des capteurs...
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Settings Tab -->
+                <div id="settingsTab" class="admin-tab p-6 hidden">
+                    <h3 class="text-lg font-semibold text-gray-800 mb-6">Paramètres système</h3>
+                    
+                    <div class="space-y-6">
+                        <div class="border border-gray-200 rounded-lg p-4">
+                            <h4 class="font-medium text-gray-800 mb-4">Seuils d'alerte</h4>
+                            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">Seuil attention (%)</label>
+                                    <input id="thresholdWarning" type="number" value="50" class="w-full border border-gray-300 rounded-lg px-3 py-2">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">Seuil critique (%)</label>
+                                    <input id="thresholdCritical" type="number" value="70" class="w-full border border-gray-300 rounded-lg px-3 py-2">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">Seuil urgence (%)</label>
+                                    <input id="thresholdUrgent" type="number" value="90" class="w-full border border-gray-300 rounded-lg px-3 py-2">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="border border-gray-200 rounded-lg p-4">
+                            <h4 class="font-medium text-gray-800 mb-4">Notifications</h4>
+                            <div class="space-y-3">
+                                <label class="flex items-center">
+                                    <input id="emailNotifications" type="checkbox" checked class="rounded border-gray-300 text-blue-600 mr-3">
+                                    <span class="text-sm text-gray-700">Notifications email</span>
+                                </label>
+                                <label class="flex items-center">
+                                    <input id="smsNotifications" type="checkbox" checked class="rounded border-gray-300 text-blue-600 mr-3">
+                                    <span class="text-sm text-gray-700">Notifications SMS</span>
+                                </label>
+                                <label class="flex items-center">
+                                    <input id="pushNotifications" type="checkbox" class="rounded border-gray-300 text-blue-600 mr-3">
+                                    <span class="text-sm text-gray-700">Notifications push</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="border border-gray-200 rounded-lg p-4">
+                            <h4 class="font-medium text-gray-800 mb-4">Optimisation des tournées</h4>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">Algorithme d'optimisation</label>
+                                    <select id="optimizationAlgorithm" class="w-full border border-gray-300 rounded-lg px-3 py-2">
+                                        <option>Plus court chemin</option>
+                                        <option selected>Économie de carburant</option>
+                                        <option>Minimisation du temps</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">Mise à jour automatique</label>
+                                    <select id="autoUpdate" class="w-full border border-gray-300 rounded-lg px-3 py-2">
+                                        <option>Toutes les heures</option>
+                                        <option selected>Toutes les 4 heures</option>
+                                        <option>Une fois par jour</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <button onclick="saveSettings()" class="bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 transition-colors">
+                            <i class="fas fa-save mr-2"></i>Enregistrer les paramètres
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Alerts Tab -->
+                <div id="alertsTab" class="admin-tab p-6 hidden">
+                    <h3 class="text-lg font-semibold text-gray-800 mb-6">Configuration des alertes</h3>
+                    
+                    <div class="space-y-4">
+                        <div class="border border-gray-200 rounded-lg p-4">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <h4 class="font-medium text-gray-800">Poubelle pleine (>90%)</h4>
+                                    <p class="text-sm text-gray-600">Alerte immédiate quand une poubelle dépasse 90%</p>
+                                </div>
+                                <label class="relative inline-flex items-center cursor-pointer">
+                                    <input id="alertFullBin" type="checkbox" checked class="sr-only peer">
+                                    <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="border border-gray-200 rounded-lg p-4">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <h4 class="font-medium text-gray-800">Capteur hors ligne</h4>
+                                    <p class="text-sm text-gray-600">Alerte si aucun signal reçu depuis 2 heures</p>
+                                </div>
+                                <label class="relative inline-flex items-center cursor-pointer">
+                                    <input id="alertOfflineSensor" type="checkbox" checked class="sr-only peer">
+                                    <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="border border-gray-200 rounded-lg p-4">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <h4 class="font-medium text-gray-800">Batterie faible (<20%)</h4>
+                                    <p class="text-sm text-gray-600">Alerte maintenance préventive</p>
+                                </div>
+                                <label class="relative inline-flex items-center cursor-pointer">
+                                    <input id="alertLowBattery" type="checkbox" class="sr-only peer">
+                                    <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="border border-gray-200 rounded-lg p-4">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <h4 class="font-medium text-gray-800">Tournée en retard</h4>
+                                    <p class="text-sm text-gray-600">Alerte si une collecte dépasse l'horaire prévu de 30 min</p>
+                                </div>
+                                <label class="relative inline-flex items-center cursor-pointer">
+                                    <input id="alertDelayedRoute" type="checkbox" checked class="sr-only peer">
+                                    <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Add User Modal -->
+    <div id="addUserModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden">
+        <div class="bg-white rounded-xl p-6 w-full max-w-md mx-4">
+            <h3 class="text-lg font-semibold text-gray-800 mb-4">Ajouter un utilisateur</h3>
+            <form id="addUserForm" class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Nom complet</label>
+                    <input id="newUserName" type="text" required class="w-full border border-gray-300 rounded-lg px-3 py-2">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Email</label>
+                    <input id="newUserEmail" type="email" required class="w-full border border-gray-300 rounded-lg px-3 py-2">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Mot de passe</label>
+                    <input id="newUserPassword" type="password" required class="w-full border border-gray-300 rounded-lg px-3 py-2">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Rôle</label>
+                    <select id="newUserRole" class="w-full border border-gray-300 rounded-lg px-3 py-2">
+                        <option value="operator">Opérateur</option>
+                        <option value="manager">Gestionnaire</option>
+                        <option value="administrator">Administrateur</option>
+                    </select>
+                </div>
+                <div class="flex space-x-3">
+                    <button type="submit" class="flex-1 bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700">
+                        <i class="fas fa-plus mr-2"></i>Ajouter
+                    </button>
+                    <button type="button" onclick="hideAddUserModal()" class="flex-1 bg-gray-300 text-gray-700 py-2 rounded-lg hover:bg-gray-400">
+                        Annuler
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Add Sensor Modal -->
+    <div id="addSensorModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden">
+        <div class="bg-white rounded-xl p-6 w-full max-w-md mx-4">
+            <h3 class="text-lg font-semibold text-gray-800 mb-4">Ajouter un capteur</h3>
+            <form id="addSensorForm" class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">ID du capteur</label>
+                    <input id="newSensorId" type="text" required placeholder="PB-XXX" class="w-full border border-gray-300 rounded-lg px-3 py-2">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Zone</label>
+                    <select id="newSensorZone" class="w-full border border-gray-300 rounded-lg px-3 py-2">
+                        <option value="centre">Centre-ville</option>
+                        <option value="nord">Secteur Nord</option>
+                        <option value="sud">Secteur Sud</option>
+                        <option value="industriel">Zone Industrielle</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Type</label>
+                    <select id="newSensorType" class="w-full border border-gray-300 rounded-lg px-3 py-2">
+                        <option value="general">Déchets généraux</option>
+                        <option value="recyclable">Recyclables</option>
+                        <option value="organic">Organiques</option>
+                    </select>
+                </div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Latitude</label>
+                        <input id="newSensorLat" type="number" step="0.000001" required class="w-full border border-gray-300 rounded-lg px-3 py-2">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Longitude</label>
+                        <input id="newSensorLng" type="number" step="0.000001" required class="w-full border border-gray-300 rounded-lg px-3 py-2">
+                    </div>
+                </div>
+                <div class="flex space-x-3">
+                    <button type="submit" class="flex-1 bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700">
+                        <i class="fas fa-plus mr-2"></i>Ajouter
+                    </button>
+                    <button type="button" onclick="hideAddSensorModal()" class="flex-1 bg-gray-300 text-gray-700 py-2 rounded-lg hover:bg-gray-400">
+                        Annuler
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        // Global variables
+        let map;
+        let currentSection = 'dashboard';
+        let currentUser = null;
+        let binMarkers = [];
+        let routeLayer = null;
+        let routes = [];
+        let notifications = [];
+        let sensorsData = [];
+        let usersData = [];
+        let unsubscribeFunctions = [];
+        
+        // Initialize the application
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeApp();
+        });
+
+        async function initializeApp() {
+            try {
+                // Wait for Firebase to be available
+                if (!window.firebase) {
+                    setTimeout(initializeApp, 100);
+                    return;
+                }
+
+                // Check authentication state
+                window.firebase.onAuthStateChanged(window.firebase.auth, (user) => {
+                    if (user) {
+                        handleUserLogin(user);
+                    } else {
+                        showLoginModal();
+                    }
+                });
+
+                // Initialize charts
+                initializeCharts();
+                
+                // Setup login form
+                setupLoginForm();
+                setupAddUserForm();
+                setupAddSensorForm();
+                
+            } catch (error) {
+                console.error('Erreur initialisation:', error);
+                showNotification('Erreur de connexion à Firebase', 'error');
+            }
+        }
+
+        // Authentication functions
+        function setupLoginForm() {
+            const loginForm = document.getElementById('loginForm');
+            loginForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                
+                const email = document.getElementById('loginEmail').value;
+                const password = document.getElementById('loginPassword').value;
+                
+                try {
+                    const userCredential = await window.firebase.signInWithEmailAndPassword(
+                        window.firebase.auth, email, password
+                    );
+                    
+                    showNotification('Connexion réussie!', 'success');
+                    
+                } catch (error) {
+                    console.error('Erreur de connexion:', error);
+                    showNotification('Email ou mot de passe incorrect', 'error');
+                }
+            });
+        }
+
+        async function handleUserLogin(user) {
+            try {
+                hideLoginModal();
+                showLoadingOverlay();
+                // ...existing code...
+                // Get user data from Firestore
+                const userDoc = await window.firebase.getDocs(
+                    window.firebase.query(
+                        window.firebase.collection(window.firebase.db, "users"),
+                        window.firebase.where("email", "==", user.email)
+                    )
+                );
+                
+                if (!userDoc.empty) {
+                    const userData = userDoc.docs[0].data();
+                    currentUser = { id: userDoc.docs[0].id, ...userData };
+                    
+                    // Update UI with user info
+                    updateUserInterface(currentUser);
+                    
+                    // Load data based on user permissions
+                    await loadApplicationData();
+                    
+                    // Setup real-time listeners
+                    setupRealtimeListeners();
+                    
+                    showNotification(`Bienvenue ${currentUser.name}!`, 'success');
+                } else {
+                    showNotification('Utilisateur non trouvé dans la base de données', 'error');
+                    await logoutUser();
+                }
+                
+                hideLoadingOverlay();
+                showSection('dashboard');
+                
+            } catch (error) {
+                console.error('Erreur chargement utilisateur:', error);
+                showNotification('Erreur de chargement des données utilisateur', 'error');
+                hideLoadingOverlay();
+            }
+        }
+
+        function updateUserInterface(user) {
+            // Update user name and avatar
+            document.getElementById('userName').textContent = user.name;
+            const initials = user.name.split(' ').map(n => n[0]).join('').toUpperCase();
+            document.getElementById('userAvatar').src = `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='16' fill='%23e5e7eb'/%3E%3Ctext x='16' y='20' text-anchor='middle' fill='%23374151' font-family='Arial' font-size='12'%3E${initials}%3C/text%3E%3C/svg%3E`;
+            
+            // Show/hide admin sections based on role
+            const adminElements = document.querySelectorAll('#adminNavBtn, #adminMobileBtn');
+            if (user.role === 'administrator') {
+                adminElements.forEach(el => el.classList.remove('hidden'));
+            } else {
+                adminElements.forEach(el => el.classList.add('hidden'));
+            }
+        }
+
+        async function logoutUser() {
+            try {
+                // Unsubscribe from all listeners
+                unsubscribeFunctions.forEach(unsubscribe => unsubscribe());
+                unsubscribeFunctions = [];
+                
+                await window.firebase.signOut(window.firebase.auth);
+                
+                // Reset application state
+                currentUser = null;
+                sensorsData = [];
+                usersData = [];
+                
+                showNotification('Déconnexion réussie', 'info');
+                showLoginModal();
+                
+            } catch (error) {
+                console.error('Erreur déconnexion:', error);
+                showNotification('Erreur lors de la déconnexion', 'error');
+            }
+        }
+
+        // Data loading functions
+        async function loadApplicationData() {
+            try {
+                // Load sensors data
+                await loadSensorsData();
+                
+                // Load users data (admin only)
+                if (currentUser.role === 'administrator') {
+                    await loadUsersData();
+                }
+                
+                // Update dashboard
+                updateDashboardStats();
+                
+            } catch (error) {
+                console.error('Erreur chargement données:', error);
+                showNotification('Erreur de chargement des données', 'error');
+            }
+        }
+
+        async function loadSensorsData() {
+            try {
+                const user = window.firebase.auth.currentUser;
+                if (!user) return;
+                const capteursRef = window.firebase.collection(
+                    window.firebase.db,
+                    `Utilisateurs/${user.uid}/Capteurs`
+                );
+                const querySnapshot = await window.firebase.getDocs(capteursRef);
+                sensorsData = [];
+                querySnapshot.forEach((doc) => {
+                    sensorsData.push({ id: doc.id, ...doc.data() });
+                });
+                // Update map if visible
+                if (currentSection === 'map' && map) {
+                    updateMapMarkers();
+                }
+                // Update sensors grid in admin
+                updateSensorsGrid();
+            } catch (error) {
+                console.error('Erreur chargement capteurs:', error);
+                showNotification('Erreur de chargement des capteurs', 'error');
+            }
+        }
+
+        async function loadUsersData() {
+            try {
+                const querySnapshot = await window.firebase.getDocs(
+                    window.firebase.collection(window.firebase.db, "users")
+                );
+                
+                usersData = [];
+                querySnapshot.forEach((doc) => {
+                    usersData.push({ id: doc.id, ...doc.data() });
+                });
+                
+                updateUsersTable();
+                
+            } catch (error) {
+                console.error('Erreur chargement utilisateurs:', error);
+                showNotification('Erreur de chargement des utilisateurs', 'error');
+            }
+        }
+
+        // Real-time listeners
+        function setupRealtimeListeners() {
+            // Listen to sensors changes (par utilisateur)
+            const user = window.firebase.auth.currentUser;
+            if (!user) return;
+            const sensorsQuery = window.firebase.collection(window.firebase.db, `Utilisateurs/${user.uid}/Capteurs`);
+            const unsubscribeSensors = window.firebase.onSnapshot(sensorsQuery, (querySnapshot) => {
+                sensorsData = [];
+                querySnapshot.forEach((doc) => {
+                    sensorsData.push({ id: doc.id, ...doc.data() });
+                });
+                updateDashboardStats();
+                updateMapMarkers();
+                updateSensorsGrid();
+                checkForAlerts();
+            });
+            unsubscribeFunctions.push(unsubscribeSensors);
+            // Listen to users changes (admin only)
+            if (currentUser.role === 'administrator') {
+                const usersQuery = window.firebase.collection(window.firebase.db, "users");
+                const unsubscribeUsers = window.firebase.onSnapshot(usersQuery, (querySnapshot) => {
+                    usersData = [];
+                    querySnapshot.forEach((doc) => {
+                        usersData.push({ id: doc.id, ...doc.data() });
+                    });
+                    
+                    updateUsersTable();
+                });
+                
+                unsubscribeFunctions.push(unsubscribeUsers);
+            }
+        }
+
+        // User management functions
+        function setupAddUserForm() {
+            const addUserForm = document.getElementById('addUserForm');
+            addUserForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                
+                const name = document.getElementById('newUserName').value;
+                const email = document.getElementById('newUserEmail').value;
+                const password = document.getElementById('newUserPassword').value;
+                const role = document.getElementById('newUserRole').value;
+                
+                try {
+                    // Create user in Firebase Auth
+                    const userCredential = await window.firebase.createUserWithEmailAndPassword(
+                        window.firebase.auth, email, password
+                    );
+                    
+                    // Add user data to Firestore
+                    await window.firebase.addDoc(window.firebase.collection(window.firebase.db, "users"), {
+                        name: name,
+                        email: email,
+                        role: role,
+                        createdAt: window.firebase.serverTimestamp(),
+                        isActive: true,
+                        zones: role === 'administrator' ? ['centre', 'nord', 'sud', 'industriel'] : ['centre']
+                    });
+                    
+                    showNotification(`Utilisateur ${name} créé avec succès!`, 'success');
+                    hideAddUserModal();
+                    addUserForm.reset();
+                    
+                } catch (error) {
+                    console.error('Erreur création utilisateur:', error);
+                    showNotification(`Erreur: ${error.message}`, 'error');
+                }
+            });
+        }
+
+        function setupAddSensorForm() {
+            const addSensorForm = document.getElementById('addSensorForm');
+            addSensorForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                
+                const id = document.getElementById('newSensorId').value;
+                const zone = document.getElementById('newSensorZone').value;
+                const type = document.getElementById('newSensorType').value;
+                const lat = parseFloat(document.getElementById('newSensorLat').value);
+                const lng = parseFloat(document.getElementById('newSensorLng').value);
+                
+                try {
+                    await window.firebase.setDoc(
+                        window.firebase.doc(window.firebase.db, "sensors", id),
+                        {
+                            location: { lat, lng },
+                            zone: zone,
+                            type: type,
+                            level: 0,
+                            battery: 100,
+                            signal: -45,
+                            status: 'normal',
+                            lastUpdate: window.firebase.serverTimestamp(),
+                            installDate: window.firebase.serverTimestamp(),
+                            capacity: 240,
+                            isActive: true
+                        }
+                    );
+                    
+                    showNotification(`Capteur ${id} ajouté avec succès!`, 'success');
+                    hideAddSensorModal();
+                    addSensorForm.reset();
+                    
+                } catch (error) {
+                    console.error('Erreur ajout capteur:', error);
+                    showNotification(`Erreur: ${error.message}`, 'error');
+                }
+            });
+        }
+
+        // UI Update functions
+        function updateDashboardStats() {
+            if (sensorsData.length === 0) return;
+            
+            const activeBins = sensorsData.filter(sensor => sensor.isActive && sensor.status !== 'offline').length;
+            const totalLevel = sensorsData.reduce((sum, sensor) => {
+                return sum + (sensor.status !== 'offline' ? sensor.level : 0);
+            }, 0);
+            const averageLevel = activeBins > 0 ? Math.round(totalLevel / activeBins) : 0;
+            const criticalBins = sensorsData.filter(sensor => sensor.level >= 70 && sensor.status !== 'offline').length;
+            
+            document.getElementById('activeBins').textContent = activeBins;
+            document.getElementById('averageLevel').textContent = averageLevel + '%';
+            document.getElementById('activeAlerts').textContent = criticalBins;
+            
+            // Update status indicators
+            const activeBinsStatus = document.querySelector('#activeBins').parentElement.querySelector('.text-green-600');
+            const averageLevelStatus = document.querySelector('#averageLevel').parentElement.querySelector('.text-orange-600');
+            const alertsStatus = document.querySelector('#activeAlerts').parentElement.querySelector('.text-red-600');
+            
+            activeBinsStatus.innerHTML = '<i class="fas fa-check mr-1"></i>En ligne';
+            averageLevelStatus.innerHTML = `<i class="fas fa-chart-line mr-1"></i>Temps réel`;
+            alertsStatus.innerHTML = criticalBins > 0 ? '<i class="fas fa-exclamation-triangle mr-1"></i>Action requise' : '<i class="fas fa-check mr-1"></i>Tout va bien';
+            
+            // Update recent activity
+            updateRecentActivity();
+        }
+
+        function updateRecentActivity() {
+            const recentActivity = document.getElementById('recentActivity');
+            const criticalSensors = sensorsData.filter(s => s.level >= 90).slice(0, 3);
+            
+            if (criticalSensors.length === 0) {
+                recentActivity.innerHTML = `
+                    <div class="flex items-center space-x-4 p-3 bg-green-50 rounded-lg">
+                        <div class="bg-green-100 p-2 rounded-full">
+                            <i class="fas fa-check text-green-600"></i>
+                        </div>
+                        <div class="flex-1">
+                            <p class="font-medium text-green-800">Système optimal</p>
+                            <p class="text-sm text-green-600">Toutes les poubelles fonctionnent normalement</p>
+                        </div>
+                    </div>
+                `;
+                return;
+            }
+            
+            recentActivity.innerHTML = criticalSensors.map(sensor => `
+                <div class="flex items-center space-x-4 p-3 bg-red-50 rounded-lg">
+                    <div class="bg-red-100 p-2 rounded-full">
+                        <i class="fas fa-exclamation-triangle text-red-600"></i>
+                    </div>
+                    <div class="flex-1">
+                        <p class="font-medium text-red-800">Alerte critique - ${sensor.id}</p>
+                        <p class="text-sm text-red-600">Niveau ${sensor.level}% - ${getZoneName(sensor.zone)}</p>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function updateMapMarkers() {
+            if (!map || sensorsData.length === 0) return;
+            
+            // Clear existing markers
+            binMarkers.forEach(({ marker }) => map.removeLayer(marker));
+            binMarkers = [];
+            
+            // Add new markers
+            sensorsData.forEach(sensor => {
+                if (!sensor.location) return;
+                
+                const color = getBinColor(sensor.level, sensor.status);
+                const icon = L.divIcon({
+                    className: 'custom-div-icon',
+                    html: `<div style="background-color: ${color}; width: 20px; height: 20px; border-radius: 50%; border: 2px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.3);"></div>`,
+                    iconSize: [20, 20],
+                    iconAnchor: [10, 10]
+                });
+                
+                const marker = L.marker([sensor.location.lat, sensor.location.lng], { icon: icon }).addTo(map);
+                
+                const popupContent = `
+                    <div class="p-3">
+                        <h4 class="font-semibold text-gray-800 mb-2">${sensor.id}</h4>
+                        <div class="space-y-1 text-sm">
+                            <div><strong>Zone:</strong> ${getZoneName(sensor.zone)}</div>
+                            <div><strong>Type:</strong> ${getTypeName(sensor.type)}</div>
+                            <div><strong>Niveau:</strong> ${sensor.status === 'offline' ? 'Hors ligne' : sensor.level + '%'}</div>
+                            <div><strong>Batterie:</strong> ${sensor.battery}%</div>
+                            <div><strong>Statut:</strong> <span class="px-2 py-1 rounded-full text-xs ${getStatusClass(sensor.status)}">${getStatusName(sensor.status)}</span></div>
+                        </div>
+                        <div class="mt-3 flex space-x-2">
+                            <button onclick="collectBin('${sensor.id}')" class="bg-blue-600 text-white px-3 py-1 rounded text-sm hover:bg-blue-700">
+                                Programmer collecte
+                            </button>
+                            <button onclick="viewBinDetails('${sensor.id}')" class="bg-gray-600 text-white px-3 py-1 rounded text-sm hover:bg-gray-700">
+                                Détails
+                            </button>
+                        </div>
+                    </div>
+                `;
+                
+                marker.bindPopup(popupContent);
+                binMarkers.push({ marker, bin: sensor });
+            });
+        }
+
+        function updateUsersTable() {
+            const tbody = document.getElementById('usersTableBody');
+            
+            if (usersData.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="6" class="py-8 text-center text-gray-500">
+                            Aucun utilisateur trouvé
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
+            
+            tbody.innerHTML = usersData.map(user => `
+                <tr class="border-b border-gray-100 hover:bg-gray-50">
+                    <td class="py-3 px-4 font-medium">${user.name}</td>
+                    <td class="py-3 px-4">${user.email}</td>
+                    <td class="py-3 px-4">
+                        <span class="px-2 py-1 rounded-full text-xs ${getRoleClass(user.role)}">${getRoleName(user.role)}</span>
+                    </td>
+                    <td class="py-3 px-4">${user.lastLogin ? 'Récemment' : 'Jamais'}</td>
+                    <td class="py-3 px-4">
+                        <span class="bg-green-100 text-green-800 px-2 py-1 rounded-full text-xs">Actif</span>
+                    </td>
+                    <td class="py-3 px-4">
+                        <button onclick="editUser('${user.id}')" class="text-blue-600 hover:text-blue-800 mr-3">
+                            <i class="fas fa-edit"></i>
+                        </button>
+                        <button onclick="deleteUser('${user.id}')" class="text-red-600 hover:text-red-800">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        function updateSensorsGrid() {
+            const grid = document.getElementById('sensorsGrid');
+            
+            if (sensorsData.length === 0) {
+                grid.innerHTML = `
+                    <div class="text-center text-gray-500 col-span-full">
+                        Aucun capteur trouvé
+                    </div>
+                `;
+                return;
+            }
+            
+            grid.innerHTML = sensorsData.map(sensor => `
+                <div class="border border-gray-200 rounded-lg p-4">
+                    <div class="flex items-center justify-between mb-3">
+                        <h4 class="font-medium text-gray-800">${sensor.id}</h4>
+                        <div class="w-3 h-3 ${getStatusColor(sensor.status)} rounded-full"></div>
+                    </div>
+                    <div class="space-y-2 text-sm text-gray-600">
+                        <div><strong>Zone:</strong> ${getZoneName(sensor.zone)}</div>
+                        <div><strong>Type:</strong> ${getTypeName(sensor.type)}</div>
+                        <div><strong>Niveau:</strong> ${sensor.status === 'offline' ? '--' : sensor.level + '%'}</div>
+                        <div><strong>Batterie:</strong> ${sensor.battery}%</div>
+                        <div><strong>Signal:</strong> ${sensor.status === 'offline' ? 'Hors ligne' : sensor.signal + ' dBm'}</div>
+                    </div>
+                    <div class="mt-4 flex space-x-2">
+                        <button onclick="editSensor('${sensor.id}')" class="text-blue-600 hover:text-blue-800 text-sm">
+                            <i class="fas fa-edit mr-1"></i>Modifier
+                        </button>
+                        <button onclick="deleteSensor('${sensor.id}')" class="text-red-600 hover:text-red-800 text-sm">
+                            <i class="fas fa-trash mr-1"></i>Supprimer
+                        </button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // Alert checking
+        function checkForAlerts() {
+            const criticalSensors = sensorsData.filter(s => s.level >= 90 && s.status !== 'offline');
+            const offlineSensors = sensorsData.filter(s => s.status === 'offline');
+            const lowBatterySensors = sensorsData.filter(s => s.battery < 20);
+            
+            // Update notification badge
+            const totalAlerts = criticalSensors.length + offlineSensors.length + lowBatterySensors.length;
+            document.getElementById('notificationBadge').textContent = totalAlerts;
+            
+            // Add notifications for new critical sensors
+            criticalSensors.forEach(sensor => {
+                if (!notifications.find(n => n.sensorId === sensor.id && n.type === 'critical')) {
+                    addNotificationToPanel(
+                        `Poubelle ${sensor.id} critique (${sensor.level}%)`,
+                        'error',
+                        'exclamation-triangle',
+                        sensor.id
+                    );
+                }
+            });
+        }
+
+        // Demo account creation
+        async function createDemoAccounts() {
+            try {
+                const demoAccounts = [
+                    { email: 'admin@ville.fr', password: 'admin123', name: 'Administrateur Système', role: 'administrator' },
+                    { email: 'manager@ville.fr', password: 'manager123', name: 'Gestionnaire Principal', role: 'manager' },
+                    { email: 'operator@ville.fr', password: 'operator123', name: 'Opérateur Terrain', role: 'operator' }
+                ];
+                
+                for (const account of demoAccounts) {
+                    try {
+                        // Create user in Firebase Auth
+                        const userCredential = await window.firebase.createUserWithEmailAndPassword(
+                            window.firebase.auth, account.email, account.password
+                        );
+                        
+                        // Add user data to Firestore
+                        await window.firebase.addDoc(window.firebase.collection(window.firebase.db, "users"), {
+                            name: account.name,
+                            email: account.email,
+                            role: account.role,
+                            createdAt: window.firebase.serverTimestamp(),
+                            isActive: true,
+                            zones: account.role === 'administrator' ? ['centre', 'nord', 'sud', 'industriel'] : ['centre']
+                        });
+                        
+                    } catch (error) {
+                        if (error.code !== 'auth/email-already-in-use') {
+                            console.error('Erreur création compte:', error);
+                        }
+                    }
+                }
+                
+                // Create demo sensors
+                const demoSensors = [
+                    { id: 'PB-001', lat: 48.8566, lng: 2.3522, level: 95, zone: 'centre', type: 'general', status: 'critical', battery: 78 },
+                    { id: 'PB-002', lat: 48.8606, lng: 2.3376, level: 65, zone: 'nord', type: 'recyclable', status: 'warning', battery: 45 },
+                    { id: 'PB-003', lat: 48.8529, lng: 2.3499, level: 32, zone: 'sud', type: 'organic', status: 'normal', battery: 89 },
+                    { id: 'PB-004', lat: 48.8584, lng: 2.2945, level: 78, zone: 'centre', type: 'general', status: 'critical', battery: 67 },
+                    { id: 'PB-005', lat: 48.8738, lng: 2.2950, level: 45, zone: 'nord', type: 'recyclable', status: 'normal', battery: 92 },
+                    { id: 'PB-006', lat: 48.8462, lng: 2.3371, level: 0, zone: 'industriel', type: 'general', status: 'offline', battery: 12 }
+                ];
+                
+                for (const sensor of demoSensors) {
+                    try {
+                        await window.firebase.setDoc(
+                            window.firebase.doc(window.firebase.db, "sensors", sensor.id),
+                            {
+                                location: { lat: sensor.lat, lng: sensor.lng },
+                                zone: sensor.zone,
+                                type: sensor.type,
+                                level: sensor.level,
+                                battery: sensor.battery,
+                                signal: -65,
+                                status: sensor.status,
+                                lastUpdate: window.firebase.serverTimestamp(),
+                                installDate: window.firebase.serverTimestamp(),
+                                capacity: 240,
+                                isActive: true
+                            }
+                        );
+                    } catch (error) {
+                        console.error('Erreur création capteur:', error);
+                    }
+                }
+                
+                showNotification('Comptes et capteurs de démonstration créés!', 'success');
+                
+            } catch (error) {
+                console.error('Erreur création comptes démo:', error);
+                showNotification('Erreur lors de la création des comptes de démonstration', 'error');
+            }
+        }
+
+        // Modal functions
+        function showLoginModal() {
+            document.getElementById('loginModal').classList.remove('hidden');
+            document.getElementById('loginOverlay').classList.remove('hidden');
+        }
+
+        function hideLoginModal() {
+            document.getElementById('loginModal').classList.add('hidden');
+            document.getElementById('loginOverlay').classList.add('hidden');
+        }
+
+        function showLoadingOverlay() {
+            document.getElementById('loadingOverlay').classList.remove('hidden');
+        }
+
+        function hideLoadingOverlay() {
+            document.getElementById('loadingOverlay').classList.add('hidden');
+        }
+
+        function showAddUserModal() {
+            document.getElementById('addUserModal').classList.remove('hidden');
+        }
+
+        function hideAddUserModal() {
+            document.getElementById('addUserModal').classList.add('hidden');
+        }
+
+        function showAddSensorModal() {
+            document.getElementById('addSensorModal').classList.remove('hidden');
+        }
+
+        function hideAddSensorModal() {
+            document.getElementById('addSensorModal').classList.add('hidden');
+        }
+
+        // Utility functions
+        function getBinColor(level, status) {
+            if (status === 'offline') return '#9CA3AF';
+            if (level >= 70) return '#EF4444';
+            if (level >= 50) return '#F59E0B';
+            return '#10B981';
+        }
+
+        function getStatusColor(status) {
+            const colors = {
+                'normal': 'bg-green-500',
+                'warning': 'bg-orange-500',
+                'critical': 'bg-red-500',
+                'offline': 'bg-gray-400'
+            };
+            return colors[status] || 'bg-gray-400';
+        }
+
+        function getZoneName(zone) {
+            const zones = {
+                'centre': 'Centre-ville',
+                'nord': 'Secteur Nord',
+                'sud': 'Secteur Sud',
+                'industriel': 'Zone Industrielle'
+            };
+            return zones[zone] || zone;
+        }
+
+        function getTypeName(type) {
+            const types = {
+                'general': 'Déchets généraux',
+                'recyclable': 'Recyclables',
+                'organic': 'Organiques'
+            };
+            return types[type] || type;
+        }
+
+        function getStatusName(status) {
+            const statuses = {
+                'normal': 'Normal',
+                'warning': 'Attention',
+                'critical': 'Critique',
+                'offline': 'Hors ligne'
+            };
+            return statuses[status] || status;
+        }
+
+        function getStatusClass(status) {
+            const classes = {
+                'normal': 'bg-green-100 text-green-800',
+                'warning': 'bg-orange-100 text-orange-800',
+                'critical': 'bg-red-100 text-red-800',
+                'offline': 'bg-gray-100 text-gray-800'
+            };
+            return classes[status] || '';
+        }
+
+        function getRoleName(role) {
+            const roles = {
+                'administrator': 'Administrateur',
+                'manager': 'Gestionnaire',
+                'operator': 'Opérateur'
+            };
+            return roles[role] || role;
+        }
+
+        function getRoleClass(role) {
+            const classes = {
+                'administrator': 'bg-purple-100 text-purple-800',
+                'manager': 'bg-blue-100 text-blue-800',
+                'operator': 'bg-green-100 text-green-800'
+            };
+            return classes[role] || 'bg-gray-100 text-gray-800';
+        }
+
+        // Notification system
+        function showNotification(message, type = 'info') {
+            const container = document.getElementById('notificationContainer');
+            const notification = document.createElement('div');
+            notification.className = `notification ${type}`;
+            notification.innerHTML = `
+                <div class="flex items-center justify-between">
+                    <span>${message}</span>
+                    <button onclick="this.parentElement.parentElement.remove()" class="ml-4 text-white hover:text-gray-200">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+            `;
+            
+            container.appendChild(notification);
+            
+            // Show notification
+            setTimeout(() => notification.classList.add('show'), 100);
+            
+            // Auto remove after 5 seconds
+            setTimeout(() => {
+                if (notification.parentElement) {
+                    notification.classList.remove('show');
+                    setTimeout(() => notification.remove(), 300);
+                }
+            }, 5000);
+        }
+
+        function addNotificationToPanel(message, type, icon, sensorId = null) {
+            const notificationsList = document.getElementById('notificationsList');
+            const colors = {
+                'success': 'green',
+                'warning': 'orange',
+                'error': 'red',
+                'info': 'blue'
+            };
+            const color = colors[type] || 'blue';
+            
+            // Remove existing loading message
+            const loadingMsg = notificationsList.querySelector('.text-center');
+            if (loadingMsg) loadingMsg.remove();
+            
+            const notification = document.createElement('div');
+            notification.className = `flex items-start space-x-3 p-3 bg-${color}-50 rounded-lg`;
+            notification.innerHTML = `
+                <i class="fas fa-${icon} text-${color}-500 mt-1"></i>
+                <div>
+                    <p class="text-sm font-medium text-${color}-800">${message}</p>
+                    <p class="text-xs text-gray-500">À l'instant</p>
+                </div>
+            `;
+            
+            notificationsList.insertBefore(notification, notificationsList.firstChild);
+            
+            // Keep only last 10 notifications
+            const notifications = notificationsList.children;
+            if (notifications.length > 10) {
+                notificationsList.removeChild(notifications[notifications.length - 1]);
+            }
+            
+            // Add to notifications array
+            notifications.push({ message, type, icon, sensorId, timestamp: new Date() });
+        }
+
+        function toggleNotifications() {
+            const panel = document.getElementById('notificationPanel');
+            panel.classList.toggle('hidden');
+        }
+
+        // Navigation functions
+        function showSection(sectionName) {
+            // Hide all sections
+            document.querySelectorAll('.section').forEach(section => {
+                section.classList.add('hidden');
+            });
+            
+            // Show selected section
+            document.getElementById(sectionName).classList.remove('hidden');
+            
+            // Update navigation buttons
+            document.querySelectorAll('.nav-btn, .mobile-nav-btn').forEach(btn => {
+                btn.classList.remove('text-blue-200', 'bg-blue-100', 'text-blue-600');
+            });
+            
+            currentSection = sectionName;
+            
+            // Initialize map if map section is shown
+            if (sectionName === 'map' && !map) {
+                setTimeout(initializeMap, 100);
+            }
+        }
+
+        // Map functions
+        function initializeMap() {
+            map = L.map('mapContainer').setView([48.8566, 2.3522], 13);
+            
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap contributors'
+            }).addTo(map);
+            
+            // Add bin markers
+            updateMapMarkers();
+        }
+
+        // Admin functions
+        function showAdminTab(tabName) {
+            // Hide all admin tabs
+            document.querySelectorAll('.admin-tab').forEach(tab => {
+                tab.classList.add('hidden');
+            });
+            
+            // Show selected tab
+            document.getElementById(tabName + 'Tab').classList.remove('hidden');
+            
+            // Update tab buttons
+            document.querySelectorAll('.admin-tab-btn').forEach(btn => {
+                btn.classList.remove('border-blue-500', 'text-blue-600');
+                btn.classList.add('border-transparent', 'text-gray-500');
+            });
+            
+            event.target.classList.remove('border-transparent', 'text-gray-500');
+            event.target.classList.add('border-blue-500', 'text-blue-600');
+        }
+
+        async function editUser(userId) {
+            showNotification(`Modification de l'utilisateur...`, 'info');
+        }
+
+        async function deleteUser(userId) {
+            if (confirm('Êtes-vous sûr de vouloir supprimer cet utilisateur ?')) {
+                try {
+                    await window.firebase.deleteDoc(window.firebase.doc(window.firebase.db, "users", userId));
+                    showNotification('Utilisateur supprimé avec succès', 'success');
+                } catch (error) {
+                    console.error('Erreur suppression utilisateur:', error);
+                    showNotification('Erreur lors de la suppression', 'error');
+                }
+            }
+        }
+
+        async function editSensor(sensorId) {
+            showNotification(`Configuration du capteur ${sensorId}...`, 'info');
+        }
+
+        async function deleteSensor(sensorId) {
+            if (confirm(`Supprimer le capteur ${sensorId} ?`)) {
+                try {
+                    await window.firebase.deleteDoc(window.firebase.doc(window.firebase.db, "sensors", sensorId));
+                    showNotification(`Capteur ${sensorId} supprimé`, 'success');
+                } catch (error) {
+                    console.error('Erreur suppression capteur:', error);
+                    showNotification('Erreur lors de la suppression', 'error');
+                }
+            }
+        }
+
+        async function collectBin(binId) {
+            try {
+                const sensorRef = window.firebase.doc(window.firebase.db, "sensors", binId);
+                await window.firebase.updateDoc(sensorRef, {
+                    level: Math.floor(Math.random() * 20), // 0-20% after collection
+                    status: 'normal',
+                    lastUpdate: window.firebase.serverTimestamp()
+                });
+                
+                showNotification(`Collecte programmée pour ${binId}`, 'success');
+                addNotificationToPanel(`Collecte programmée: ${binId}`, 'info', 'truck');
+                
+            } catch (error) {
+                console.error('Erreur collecte:', error);
+                showNotification('Erreur lors de la programmation', 'error');
+            }
+        }
+
+        function viewBinDetails(binId) {
+            const sensor = sensorsData.find(s => s.id === binId);
+            if (sensor) {
+                alert(`Détails de ${binId}:\n\nZone: ${getZoneName(sensor.zone)}\nType: ${getTypeName(sensor.type)}\nNiveau: ${sensor.level}%\nBatterie: ${sensor.battery}%\nSignal: ${sensor.signal} dBm\nStatut: ${getStatusName(sensor.status)}`);
+            }
+        }
+
+        // Placeholder functions for other features
+        function applyFilters() {
+            showNotification('Filtres appliqués', 'info');
+        }
+
+        function refreshMap() {
+            if (map) {
+                updateMapMarkers();
+                showNotification('Carte actualisée', 'success');
+            }
+        }
+
+        function generateRoute() {
+            showNotification('Génération d\'itinéraire...', 'info');
+        }
+
+        function applyOptimization() {
+            showNotification('Optimisation appliquée!', 'success');
+        }
+
+        function updateStats() {
+            showNotification('Statistiques mises à jour', 'success');
+        }
+
+        function exportReport() {
+            showNotification('Rapport exporté!', 'success');
+        }
+
+        function saveSettings() {
+            showNotification('Paramètres enregistrés!', 'success');
+        }
+
+        // Chart initialization
+        // Variables globales pour stocker les instances Chart.js
+        let fillChartInstance = null;
+        let zoneChartInstance = null;
+        let collectionsChartInstance = null;
+        let performanceChartInstance = null;
+
+        function initializeCharts() {
+            // Fill level chart
+            const fillCtx = document.getElementById('fillChart').getContext('2d');
+            if (fillChartInstance) fillChartInstance.destroy();
+            fillChartInstance = new Chart(fillCtx, {
+                type: 'line',
+                data: {
+                    labels: ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'],
+                    datasets: [{
+                        label: 'Taux moyen (%)',
+                        data: [45, 52, 48, 61, 55, 67, 68],
+                        borderColor: '#3B82F6',
+                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                        tension: 0.4,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            max: 100
+                        }
+                    }
+                }
+            });
+
+            // Zone distribution chart
+            const zoneCtx = document.getElementById('zoneChart').getContext('2d');
+            if (zoneChartInstance) zoneChartInstance.destroy();
+            zoneChartInstance = new Chart(zoneCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Centre-ville', 'Secteur Nord', 'Secteur Sud', 'Zone Industrielle'],
+                    datasets: [{
+                        data: [35, 28, 22, 15],
+                        backgroundColor: ['#3B82F6', '#10B981', '#F59E0B', '#EF4444']
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'bottom'
+                        }
+                    }
+                }
+            });
+
+            // Collections chart (for stats section)
+            setTimeout(() => {
+                const collectionsCtx = document.getElementById('collectionsChart');
+                if (collectionsCtx) {
+                    if (collectionsChartInstance) collectionsChartInstance.destroy();
+                    collectionsChartInstance = new Chart(collectionsCtx.getContext('2d'), {
+                        type: 'bar',
+                        data: {
+                            labels: ['Sem 1', 'Sem 2', 'Sem 3', 'Sem 4'],
+                            datasets: [{
+                                label: 'Collectes',
+                                data: [285, 312, 298, 352],
+                                backgroundColor: '#10B981',
+                                borderRadius: 4
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: {
+                                legend: {
+                                    display: false
+                                }
+                            },
+                            scales: {
+                                y: {
+                                    beginAtZero: true
+                                }
+                            }
+                        }
+                    });
+                }
+            }, 100);
+
+            // Performance chart (for stats section)
+            setTimeout(() => {
+                const performanceCtx = document.getElementById('performanceChart');
+                if (performanceCtx) {
+                    if (performanceChartInstance) performanceChartInstance.destroy();
+                    performanceChartInstance = new Chart(performanceCtx.getContext('2d'), {
+                        type: 'radar',
+                        data: {
+                            labels: ['Efficacité', 'Rapidité', 'Économie', 'Écologie', 'Satisfaction'],
+                            datasets: [{
+                                label: 'Performance',
+                                data: [85, 78, 92, 88, 82],
+                                borderColor: '#8B5CF6',
+                                backgroundColor: 'rgba(139, 92, 246, 0.2)',
+                                pointBackgroundColor: '#8B5CF6'
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            scales: {
+                                r: {
+                                    beginAtZero: true,
+                                    max: 100
+                                }
+                            }
+                        }
+                    });
+                }
+            }, 100);
+        }
+
+        // Close notifications when clicking outside
+        document.addEventListener('click', function(event) {
+            const panel = document.getElementById('notificationPanel');
+            const bell = event.target.closest('.fa-bell');
+            
+            if (!panel.contains(event.target) && !bell) {
+                panel.classList.add('hidden');
+            }
+        });
+    </script>
+<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'97b9c899b349e1ac',t:'MTc1NzI4NTYyMS4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+</html>
