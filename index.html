@@ -990,7 +990,7 @@
                 // Get user data from Firestore
                 const userDoc = await window.firebase.getDocs(
                     window.firebase.query(
-                        window.firebase.collection(window.firebase.db, "Utilisateurs"),
+                        window.firebase.collection(window.firebase.db, "users"),
                         window.firebase.where("email", "==", user.email)
                     )
                 );
