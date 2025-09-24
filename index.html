@@ -998,6 +998,8 @@
                 if (!userDoc.empty) {
                     const userData = userDoc.docs[0].data();
                     currentUser = { id: userDoc.docs[0].id, ...userData };
+
+                    console.log("Organisation de l’utilisateur :", currentUser.organizationId);
                     
                     // Update UI with user info
                     updateUserInterface(currentUser);
@@ -1087,7 +1089,7 @@
                 if (!user) return;
                 const capteursRef = window.firebase.collection(
                     window.firebase.db,
-                    `Utilisateurs/${user.uid}/Capteurs`
+                    `organizations/${currentUser.organizationId}/Capteurs`
                 );
                 const querySnapshot = await window.firebase.getDocs(capteursRef);
                 sensorsData = [];
@@ -1130,7 +1132,7 @@
             // Listen to sensors changes (par utilisateur)
             const user = window.firebase.auth.currentUser;
             if (!user) return;
-            const sensorsQuery = window.firebase.collection(window.firebase.db, `Utilisateurs/${user.uid}/Capteurs`);
+            const sensorsQuery = window.firebase.collection(window.firebase.db, `organizations/${currentUser.organizationId}/Capteurs`);
             const unsubscribeSensors = window.firebase.onSnapshot(sensorsQuery, (querySnapshot) => {
                 sensorsData = [];
                 querySnapshot.forEach((doc) => {
@@ -1209,7 +1211,10 @@
                 
                 try {
                     await window.firebase.setDoc(
-                        window.firebase.doc(window.firebase.db, "sensors", id),
+                        window.firebase.doc(
+                        window.firebase.db,
+                        `organizations/${currentUser.organizationId}/Capteurs/${id}`
+                        ),
                         {
                             location: { lat, lng },
                             zone: zone,
