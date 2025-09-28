@@ -1725,10 +1725,8 @@
         function initializeMap() {
             if (sensorsData.length > 0) {
                 const first = sensorsData[0];
-                map.setView([first.location.lat, first.location.lng], 13);
+                map = L.map('mapContainer').setView([first.location.lat, first.location.lng], 13);
      }
-     
-
             //map = L.map('mapContainer').setView([organizations.center.lat, org.center.lng], 13);
 ; 
             
