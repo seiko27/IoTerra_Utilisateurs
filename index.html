@@ -1812,7 +1812,32 @@
 
         // Placeholder functions for other features
         function applyFilters() {
-            showNotification('Filtres appliqués', 'info');
+            const zoneFilter = document.getElementById('zoneFilter').value;
+            const levelFilter = document.getElementById('levelFilter').value;
+            const typeFilter = document.getElementById('typeFilter').value;
+            
+            let visibleCount = 0;
+            
+            binMarkers.forEach(({ marker, bin }) => {
+                let show = true;
+                
+                if (zoneFilter && bin.zone !== zoneFilter) show = false;
+                if (typeFilter && bin.type !== typeFilter) show = false;
+                if (levelFilter) {
+                    if (levelFilter === 'low' && bin.level >= 50) show = false;
+                    if (levelFilter === 'medium' && (bin.level < 50 || bin.level > 70)) show = false;
+                    if (levelFilter === 'high' && bin.level <= 70) show = false;
+                }
+                
+                if (show) {
+                    marker.addTo(map);
+                    visibleCount++;
+                } else {
+                    map.removeLayer(marker);
+                }
+            });
+            
+            showNotification(`Filtres appliqués: ${visibleCount} poubelles affichées`, 'info');
         }
 
         function refreshMap() {
