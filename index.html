@@ -1853,8 +1853,411 @@
         }
 
         function generateRoute() {
-            showNotification('Génération d\'itinéraire...', 'info');
+            const threshold = parseInt(document.getElementById('routeThreshold').value);
+            const zone = document.getElementById('routeZone').value;
+            const capacity = parseInt(document.getElementById('truckCapacity').value);
+            
+            // Show loading
+            const button = event.target;
+            const originalText = button.innerHTML;
+            button.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Génération en cours...';
+            button.disabled = true;
+            
+            setTimeout(() => {
+                // Filter bins based on criteria
+                let eligibleBins = binsData.filter(bin => {
+                    if (bin.status === 'offline') return false;
+                    if (bin.level < threshold) return false;
+                    if (zone && bin.zone !== zone) return false;
+                    return true;
+                });
+                
+                // Limit to truck capacity
+                eligibleBins = eligibleBins.slice(0, capacity);
+                
+                if (eligibleBins.length === 0) {
+                    showNotification('Aucune poubelle ne correspond aux critères', 'warning');
+                    button.innerHTML = originalText;
+                    button.disabled = false;
+                    return;
+                }
+                
+                // Calculate route metrics
+                const distance = (eligibleBins.length * 1.2 + Math.random() * 5).toFixed(1);
+                const time = Math.floor(eligibleBins.length * 8 + Math.random() * 30);
+                const hours = Math.floor(time / 60);
+                const minutes = time % 60;
+                
+                // Create new route
+                const newRoute = {
+                    id: 'R' + Date.now().toString().slice(-3),
+                    bins: eligibleBins,
+                    distance: distance,
+                    time: `${hours}h ${minutes.toString().padStart(2, '0')}min`,
+                    status: 'planned',
+                    zone: zone || 'mixed',
+                    truck: 'Auto-' + Math.floor(Math.random() * 10).toString().padStart(2, '0')
+                };
+                
+                routes.push(newRoute);
+                
+                // Add to routes list
+                addRouteToList(newRoute);
+                
+                // Reset button
+                button.innerHTML = originalText;
+                button.disabled = false;
+                
+                // Show success message
+                showNotification(`Itinéraire ${newRoute.id} généré: ${eligibleBins.length} arrêts, ${distance}km`, 'success');
+                addNotificationToPanel(`Nouvel itinéraire ${newRoute.id} généré`, 'success', 'route');
+                
+            }, 2000);
         }
+        
+        function addRouteToList(route) {
+            const routesContainer = document.getElementById('routesList');
+            
+            const routeElement = document.createElement('div');
+            routeElement.className = 'border border-gray-200 rounded-lg p-4';
+            routeElement.setAttribute('data-route-id', route.id);
+            routeElement.innerHTML = `
+                <div class="flex items-center justify-between mb-3">
+                    <h4 class="font-medium text-gray-800">Route #${route.id} - ${getZoneName(route.zone)}</h4>
+                    <span class="bg-blue-100 text-blue-800 px-2 py-1 rounded-full text-xs font-medium">Planifiée</span>
+                </div>
+                <div class="grid grid-cols-2 gap-4 text-sm text-gray-600">
+                    <div>
+                        <i class="fas fa-map-marker-alt mr-1"></i>
+                        <span>${route.bins.length} arrêts</span>
+                    </div>
+                    <div>
+                        <i class="fas fa-clock mr-1"></i>
+                        <span>${route.time}</span>
+                    </div>
+                    <div>
+                        <i class="fas fa-route mr-1"></i>
+                        <span>${route.distance} km</span>
+                    </div>
+                    <div>
+                        <i class="fas fa-truck mr-1"></i>
+                        <span>Camion ${route.truck}</span>
+                    </div>
+                </div>
+                <div class="mt-3 flex flex-wrap gap-2">
+                    <button onclick="viewRoute('${route.id}')" class="text-blue-600 hover:text-blue-800 text-sm">
+                        <i class="fas fa-eye mr-1"></i>Voir
+                    </button>
+                    <button onclick="startRoute('${route.id}')" class="text-green-600 hover:text-green-800 text-sm">
+                        <i class="fas fa-play mr-1"></i>Démarrer
+                    </button>
+                    <button onclick="openInGoogleMaps('${route.id}')" class="text-purple-600 hover:text-purple-800 text-sm">
+                        <i class="fas fa-map-marked-alt mr-1"></i>Navigation
+                    </button>
+                    <button onclick="deleteRoute('${route.id}')" class="text-red-600 hover:text-red-800 text-sm">
+                        <i class="fas fa-trash mr-1"></i>Supprimer
+                    </button>
+                </div>
+            `;
+            
+            routesContainer.insertBefore(routeElement, routesContainer.firstChild);
+        }
+
+        function viewRoute(routeId) {
+            showSection('map');
+            
+            setTimeout(() => {
+                if (!map) {
+                    initializeMap();
+                    setTimeout(() => displayRouteOnMap(routeId), 500);
+                } else {
+                    displayRouteOnMap(routeId);
+                }
+            }, 100);
+        }
+        
+        function displayRouteOnMap(routeId) {
+            // Clear existing route
+            if (routeLayer) {
+                map.removeLayer(routeLayer);
+            }
+            
+            // Find route
+            const route = routes.find(r => r.id === routeId);
+            let routeBins;
+            
+            if (route) {
+                routeBins = route.bins;
+            } else {
+                // Fallback for demo routes
+                routeBins = binsData.filter(bin => bin.level >= 70).slice(0, 5);
+            }
+            
+            if (routeBins.length === 0) {
+                showNotification('Aucune donnée d\'itinéraire trouvée', 'warning');
+                return;
+            }
+            
+            // Create route line
+            const routeCoords = routeBins.map(bin => [bin.lat, bin.lng]);
+            
+            routeLayer = L.polyline(routeCoords, {
+                color: '#3B82F6',
+                weight: 4,
+                opacity: 0.8
+            }).addTo(map);
+            
+            // Add route markers
+            routeBins.forEach((bin, index) => {
+                const marker = L.marker([bin.lat, bin.lng], {
+                    icon: L.divIcon({
+                        className: 'route-marker',
+                        html: `<div style="background: #3B82F6; color: white; width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 12px; border: 2px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.3);">${index + 1}</div>`,
+                        iconSize: [24, 24],
+                        iconAnchor: [12, 12]
+                    })
+                }).addTo(map);
+                
+                marker.bindPopup(`
+                    <div class="p-3">
+                        <h4 class="font-semibold text-blue-600">Arrêt ${index + 1}</h4>
+                        <p class="text-sm text-gray-600 mt-1">Poubelle ${bin.id}</p>
+                        <p class="text-sm text-gray-600">Niveau: ${bin.level}%</p>
+                        <p class="text-sm text-gray-600">Zone: ${getZoneName(bin.zone)}</p>
+                    </div>
+                `);
+            });
+            
+            // Fit map to route
+            map.fitBounds(routeLayer.getBounds(), { padding: [20, 20] });
+            
+            showNotification(`Itinéraire ${routeId} affiché sur la carte`, 'info');
+        }
+
+        function startRoute(routeId) {
+            const routeElement = document.querySelector(`[data-route-id="${routeId}"]`);
+            if (!routeElement) return;
+            
+            const statusSpan = routeElement.querySelector('span');
+            statusSpan.className = 'bg-green-100 text-green-800 px-2 py-1 rounded-full text-xs font-medium';
+            statusSpan.textContent = 'En cours';
+            
+            // Update buttons
+            const buttonsDiv = routeElement.querySelector('.mt-3');
+            buttonsDiv.innerHTML = `
+                <button onclick="viewRoute('${routeId}')" class="text-blue-600 hover:text-blue-800 text-sm">
+                    <i class="fas fa-eye mr-1"></i>Voir
+                </button>
+                <button onclick="pauseRoute('${routeId}')" class="text-orange-600 hover:text-orange-800 text-sm">
+                    <i class="fas fa-pause mr-1"></i>Pause
+                </button>
+                <button onclick="openInGoogleMaps('${routeId}')" class="text-purple-600 hover:text-purple-800 text-sm">
+                    <i class="fas fa-map-marked-alt mr-1"></i>Navigation
+                </button>
+                <button onclick="completeRoute('${routeId}')" class="text-green-600 hover:text-green-800 text-sm">
+                    <i class="fas fa-check mr-1"></i>Terminer
+                </button>
+            `;
+            
+            showNotification(`Itinéraire ${routeId} démarré!`, 'success');
+            addNotificationToPanel(`Itinéraire ${routeId} démarré`, 'info', 'play');
+            
+            // Update route status
+            const route = routes.find(r => r.id === routeId);
+            if (route) route.status = 'active';
+            
+            // Simulate progress
+            simulateRouteProgress(routeId);
+        }
+        
+        function simulateRouteProgress(routeId) {
+            let progress = 0;
+            const interval = setInterval(() => {
+                progress += Math.random() * 20;
+                if (progress >= 100) {
+                    clearInterval(interval);
+                    // Auto-complete route
+                    setTimeout(() => {
+                        const routeElement = document.querySelector(`[data-route-id="${routeId}"]`);
+                        if (routeElement && routeElement.querySelector('span').textContent === 'En cours') {
+                            completeRoute(routeId);
+                        }
+                    }, 2000);
+                }
+            }, 5000);
+        }
+        
+        function completeRoute(routeId) {
+            const routeElement = document.querySelector(`[data-route-id="${routeId}"]`);
+            if (!routeElement) return;
+            
+            const statusSpan = routeElement.querySelector('span');
+            statusSpan.className = 'bg-gray-100 text-gray-800 px-2 py-1 rounded-full text-xs font-medium';
+            statusSpan.textContent = 'Terminée';
+            
+            // Update buttons
+            const buttonsDiv = routeElement.querySelector('.mt-3');
+            buttonsDiv.innerHTML = `
+                <button onclick="viewRoute('${routeId}')" class="text-blue-600 hover:text-blue-800 text-sm">
+                    <i class="fas fa-eye mr-1"></i>Voir
+                </button>
+                <button onclick="deleteRoute('${routeId}')" class="text-red-600 hover:text-red-800 text-sm">
+                    <i class="fas fa-trash mr-1"></i>Supprimer
+                </button>
+            `;
+            
+            showNotification(`Itinéraire ${routeId} terminé avec succès!`, 'success');
+            addNotificationToPanel(`Itinéraire ${routeId} terminé`, 'success', 'check-circle');
+            
+            // Update route status and simulate bin emptying
+            const route = routes.find(r => r.id === routeId);
+            if (route) {
+                route.status = 'completed';
+                // Empty the bins in this route
+                route.bins.forEach(bin => {
+                    const binData = binsData.find(b => b.id === bin.id);
+                    if (binData) {
+                        binData.level = Math.floor(Math.random() * 20); // 0-20% after collection
+                        binData.status = 'normal';
+                    }
+                });
+            }
+            
+            updateDashboardStats();
+            
+            // Refresh map if visible
+            if (currentSection === 'map' && map) {
+                setTimeout(() => {
+                    binMarkers.forEach(({ marker }) => map.removeLayer(marker));
+                    addBinMarkers();
+                }, 1000);
+            }
+        }
+        
+        function deleteRoute(routeId) {
+            if (confirm(`Êtes-vous sûr de vouloir supprimer l'itinéraire ${routeId} ?`)) {
+                const routeElement = document.querySelector(`[data-route-id="${routeId}"]`);
+                if (routeElement) {
+                    routeElement.remove();
+                    
+                    // Remove from routes array
+                    const routeIndex = routes.findIndex(r => r.id === routeId);
+                    if (routeIndex > -1) {
+                        routes.splice(routeIndex, 1);
+                    }
+                    
+                    showNotification(`Itinéraire ${routeId} supprimé`, 'info');
+                }
+            }
+        }
+        
+        function pauseRoute(routeId) {
+            const routeElement = document.querySelector(`[data-route-id="${routeId}"]`);
+            if (!routeElement) return;
+            
+            const statusSpan = routeElement.querySelector('span');
+            statusSpan.className = 'bg-orange-100 text-orange-800 px-2 py-1 rounded-full text-xs font-medium';
+            statusSpan.textContent = 'En pause';
+            
+            // Update buttons
+            const buttonsDiv = routeElement.querySelector('.mt-3');
+            buttonsDiv.innerHTML = `
+                <button onclick="viewRoute('${routeId}')" class="text-blue-600 hover:text-blue-800 text-sm">
+                    <i class="fas fa-eye mr-1"></i>Voir
+                </button>
+                <button onclick="resumeRoute('${routeId}')" class="text-green-600 hover:text-green-800 text-sm">
+                    <i class="fas fa-play mr-1"></i>Reprendre
+                </button>
+                <button onclick="completeRoute('${routeId}')" class="text-gray-600 hover:text-gray-800 text-sm">
+                    <i class="fas fa-check mr-1"></i>Terminer
+                </button>
+            `;
+            
+            showNotification(`Itinéraire ${routeId} mis en pause`, 'warning');
+        }
+        
+        function resumeRoute(routeId) {
+            const routeElement = document.querySelector(`[data-route-id="${routeId}"]`);
+            if (!routeElement) return;
+            
+            const statusSpan = routeElement.querySelector('span');
+            statusSpan.className = 'bg-green-100 text-green-800 px-2 py-1 rounded-full text-xs font-medium';
+            statusSpan.textContent = 'En cours';
+            
+            // Update buttons
+            const buttonsDiv = routeElement.querySelector('.mt-3');
+            buttonsDiv.innerHTML = `
+                <button onclick="viewRoute('${routeId}')" class="text-blue-600 hover:text-blue-800 text-sm">
+                    <i class="fas fa-eye mr-1"></i>Voir
+                </button>
+                <button onclick="pauseRoute('${routeId}')" class="text-orange-600 hover:text-orange-800 text-sm">
+                    <i class="fas fa-pause mr-1"></i>Pause
+                </button>
+                <button onclick="openInGoogleMaps('${routeId}')" class="text-purple-600 hover:text-purple-800 text-sm">
+                    <i class="fas fa-map-marked-alt mr-1"></i>Navigation
+                </button>
+                <button onclick="completeRoute('${routeId}')" class="text-green-600 hover:text-green-800 text-sm">
+                    <i class="fas fa-check mr-1"></i>Terminer
+                </button>
+            `;
+            
+            showNotification(`Itinéraire ${routeId} repris`, 'success');
+        }
+
+        // Google Maps navigation function
+        function openInGoogleMaps(routeId) {
+            // Find route data
+            let routeBins;
+            const route = routes.find(r => r.id === routeId);
+            
+            if (route) {
+                routeBins = route.bins;
+            } else {
+                // Fallback for demo routes
+                if (routeId === '001') {
+                    routeBins = binsData.filter(bin => bin.zone === 'nord' && bin.level >= 70).slice(0, 5);
+                } else if (routeId === '002') {
+                    routeBins = binsData.filter(bin => bin.zone === 'centre' && bin.level >= 50).slice(0, 6);
+                } else {
+                    routeBins = binsData.filter(bin => bin.level >= 70).slice(0, 4);
+                }
+            }
+            
+            if (routeBins.length === 0) {
+                showNotification('Aucune donnée d\'itinéraire trouvée pour la navigation', 'warning');
+                return;
+            }
+            
+            // Create Google Maps URL with waypoints
+            let googleMapsUrl = 'https://www.google.com/maps/dir/';
+            
+            // Add starting point (first bin)
+            const startBin = routeBins[0];
+            googleMapsUrl += `${startBin.lat},${startBin.lng}/`;
+            
+            // Add waypoints (intermediate bins)
+            for (let i = 1; i < routeBins.length - 1; i++) {
+                const bin = routeBins[i];
+                googleMapsUrl += `${bin.lat},${bin.lng}/`;
+            }
+            
+            // Add destination (last bin)
+            if (routeBins.length > 1) {
+                const endBin = routeBins[routeBins.length - 1];
+                googleMapsUrl += `${endBin.lat},${endBin.lng}/`;
+            }
+            
+            // Add parameters for driving directions
+            googleMapsUrl += '?travelmode=driving&dir_action=navigate';
+            
+            // Open in new tab
+            window.open(googleMapsUrl, '_blank');
+            
+            showNotification(`Navigation Google Maps ouverte pour l'itinéraire ${routeId}`, 'success');
+            addNotificationToPanel(`Navigation démarrée: Route ${routeId}`, 'info', 'map-marked-alt');
+        }
+            showNotification('Génération d\'itinéraire...', 'info');
+        
 
         function applyOptimization() {
             showNotification('Optimisation appliquée!', 'success');
