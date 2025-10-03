@@ -1865,7 +1865,7 @@
             
             setTimeout(() => {
                 // Filter bins based on criteria
-                let eligibleBins = binsData.filter(bin => {
+                let eligibleBins = sensorsData.filter(bin => {
                     if (bin.status === 'offline') return false;
                     if (bin.level < threshold) return false;
                     if (zone && bin.zone !== zone) return false;
@@ -1990,7 +1990,7 @@
                 routeBins = route.bins;
             } else {
                 // Fallback for demo routes
-                routeBins = binsData.filter(bin => bin.level >= 70).slice(0, 5);
+                routeBins = sensorsData.filter(bin => bin.level >= 70).slice(0, 5);
             }
             
             if (routeBins.length === 0) {
@@ -2115,7 +2115,7 @@
                 route.status = 'completed';
                 // Empty the bins in this route
                 route.bins.forEach(bin => {
-                    const binData = binsData.find(b => b.id === bin.id);
+                    const binData = sensorsData.find(b => b.id === bin.id);
                     if (binData) {
                         binData.level = Math.floor(Math.random() * 20); // 0-20% after collection
                         binData.status = 'normal';
@@ -2215,11 +2215,11 @@
             } else {
                 // Fallback for demo routes
                 if (routeId === '001') {
-                    routeBins = binsData.filter(bin => bin.zone === 'nord' && bin.level >= 70).slice(0, 5);
+                    routeBins = sensorsData.filter(bin => bin.zone === 'nord' && bin.level >= 70).slice(0, 5);
                 } else if (routeId === '002') {
-                    routeBins = binsData.filter(bin => bin.zone === 'centre' && bin.level >= 50).slice(0, 6);
+                    routeBins = sensorsData.filter(bin => bin.zone === 'centre' && bin.level >= 50).slice(0, 6);
                 } else {
-                    routeBins = binsData.filter(bin => bin.level >= 70).slice(0, 4);
+                    routeBins = sensorsData.filter(bin => bin.level >= 70).slice(0, 4);
                 }
             }
             
