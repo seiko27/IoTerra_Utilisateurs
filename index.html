@@ -1999,7 +1999,7 @@
             }
             
             // Create route line
-            const routeCoords = routeBins.map(bin => [bin.lat, bin.lng]);
+            const routeCoords = routeBins.map(bin => [bin.location.lat, bin.location.lng]);
             
             routeLayer = L.polyline(routeCoords, {
                 color: '#3B82F6',
@@ -2009,7 +2009,7 @@
             
             // Add route markers
             routeBins.forEach((bin, index) => {
-                const marker = L.marker([bin.lat, bin.lng], {
+                const marker = L.marker([bin.location.lat, bin.location.lng], {
                     icon: L.divIcon({
                         className: 'route-marker',
                         html: `<div style="background: #3B82F6; color: white; width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 12px; border: 2px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.3);">${index + 1}</div>`,
@@ -2233,18 +2233,18 @@
             
             // Add starting point (first bin)
             const startBin = routeBins[0];
-            googleMapsUrl += `${startBin.lat},${startBin.lng}/`;
+            googleMapsUrl += `${startBin.location.lat},${startBin.location.lng}/`;
             
             // Add waypoints (intermediate bins)
             for (let i = 1; i < routeBins.length - 1; i++) {
                 const bin = routeBins[i];
-                googleMapsUrl += `${bin.lat},${bin.lng}/`;
+                googleMapsUrl += `${bin.location.lat},${bin.location.lng}/`;
             }
             
             // Add destination (last bin)
             if (routeBins.length > 1) {
                 const endBin = routeBins[routeBins.length - 1];
-                googleMapsUrl += `${endBin.lat},${endBin.lng}/`;
+                googleMapsUrl += `${endBin.location.lat},${endBin.location.lng}/`;
             }
             
             // Add parameters for driving directions
